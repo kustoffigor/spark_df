@@ -2,6 +2,7 @@
 
 usage: 
 mvn clean package
+
 /spark-submit --class org.sparkexample.DataPipeline 
 --master local target/antifraud-1.0-SNAPSHOT-jar-with-dependencies.jar 
 --csv-input ./src/main/resources/mlAttributes.json
