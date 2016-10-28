@@ -21,7 +21,7 @@ import static org.sparkexample.Config.buildSqlOptions;
 
 public class DataPipeline {
     @Parameter(
-            names = "--csv-input",
+            names = "--json-metadata",
             description = "CSV_Input File",
             required = true
     )
