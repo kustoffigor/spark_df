@@ -2,6 +2,8 @@ package org.sparkexample;
 
 import java.io.*;
 import java.util.*;
+import java.util.stream.Collectors;
+
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
@@ -75,12 +77,14 @@ public class DataPipeline {
         Dataset<Row> dframe = sqlContext.load("jdbc", buildSqlOptions());
 
         List<PipelineStage> pipelineStages = new ArrayList<>();
+        List<String> columns = new ArrayList<>();
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
             PipelineDictionary.BasicTransformation basicTransformation = pipelineData.get(field);
             switch (basicTransformation) {
                 case DATE:
                     DateTransformer dateTransformer = new DateTransformer(field.getName());
                     pipelineStages.add(dateTransformer);
+                    columns.addAll(dateTransformer.outputColumns());
                     break;
                 case DOUBLE:
                     VectorizerTransformer vectorizerTransformer = new VectorizerTransformer(field.getName());
@@ -90,17 +94,29 @@ public class DataPipeline {
                             .setOutputCol(field.getName() + "_norm")
                             .setWithStd(true)
                             .setWithMean(true);
+                    columns.add(field.getName() + "_norm");
                     pipelineStages.add(scaler);
                     BucketizerTransformer bucketizerTransformer = new BucketizerTransformer(field.getName() + "_double");
+                    columns.add(bucketizerTransformer.getOutputColumn());
                     pipelineStages.add(bucketizerTransformer);
+                    break;
                 case CATEGORICAL:
                     StringIndexer indexer = new StringIndexer()
                             .setInputCol(field.getName())
                             .setOutputCol(field.getName() + "_index");
+                    columns.add(field.getName() + "_index");
                     pipelineStages.add(indexer);
+                    break;
             }
         }
+        //columns = columns.stream().filter(s -> s.contains("_norm")).collect(Collectors.toList());
+        VectorAssembler assembler = new VectorAssembler()
+                .setInputCols(columns.toArray(new String[columns.size()]))
+                .setOutputCol("features");
+        pipelineStages.add(assembler);
 
+
+        System.out.println(columns);
         Pipeline pipeline = new Pipeline();
         pipeline.setStages(pipelineStages.toArray(new PipelineStage[pipelineStages.size()]));
         PipelineModel pipelineModel = pipeline.fit(dframe);
@@ -108,15 +124,15 @@ public class DataPipeline {
         // Save model:
         // pipelineModel.write().overwrite().save("/tmp/spark/model.ser");
 
-         // Save model:
+        // Save model:
 //        serialize(new File("/tmp/spark/pipeline.ser"), pipelineModel);
 //        serialize(new File("/tmp/spark/schema.ser"),schema);
 //        PipelineModel model2 = (PipelineModel) deserialize(new File("/tmp/spark/pipeline.ser"));
 
         dframe = pipelineModel.transform(dframe);
         dframe.printSchema();
-        dframe.select(col("trans_cur_index"), col("trans_cur"), col("cred_bal_double_bucket"), col("cred_bal_vector"), col("cred_bal_norm"), col("trans_amount"), col("trans_amount_vector"), col("trans_date_year"), col("trans_date_month"), col("trans_date_quarter"), col("trans_date_weekNumber"), col("trans_date_weekDay"),
-                col("trans_date_timestamp"), col("trans_date")).show();
+        dframe.select(col("features")).show();
+        
 
     }
 

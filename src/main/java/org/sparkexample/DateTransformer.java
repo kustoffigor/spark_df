@@ -10,7 +10,9 @@ import org.apache.spark.sql.types.StructType;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.temporal.WeekFields;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 
 import static org.apache.spark.sql.functions.col;
 
@@ -69,7 +71,22 @@ public class DateTransformer extends Transformer {
 
         col = df.col(columnAsTimestamp);
         col = functions.callUDF(minuteFromDayBeginningExtractor, col);
-        return df.withColumn(column + "_minuteFromDayBeginning", col);
+        return df.withColumn("_minuteFromDayBeginning", col);
+    }
+
+    public Set<String> outputColumns() {
+        Set<String> columns = new HashSet<String>();
+        columns.add(column + "_year");
+        columns.add(column + "_month");
+        columns.add(column + "_weekDay");
+        columns.add(column + "_hour");
+        columns.add(column + "_minute");
+//        columns.add(column + "_quarter");
+//        columns.add(column + "__weekNumber");
+//        columns.add(column + "_weekDay");
+//        columns.add(column + "_yearDay");
+//        columns.add(column + "_minuteFromDayBeginning");
+        return columns;
     }
 
     @Override
@@ -78,8 +95,18 @@ public class DateTransformer extends Transformer {
     }
 
     @Override
-    public StructType transformSchema(StructType arg0) {
-        return arg0;
+    public StructType transformSchema(StructType structType) {
+        structType = structType.add(column + "_bucket", DataTypes.DoubleType, true);
+        structType = structType.add(column + "_year", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_month", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_hour", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_minute", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_quarter", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_weekNumber", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_weekDay", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_yearDay", DataTypes.IntegerType, true);
+        structType = structType.add(column + "_minuteFromDayBeginning", DataTypes.IntegerType, true);
+        return structType;
     }
 
     public static Integer extractYear(Timestamp s) {
@@ -176,7 +203,7 @@ public class DateTransformer extends Transformer {
     private final static String minuteFromDayBeginningExtractor = "minuteFromDayBeginningExtractor";
 
 
-    private  void registerDateUDFs(SQLContext sqlContext){
+    private void registerDateUDFs(SQLContext sqlContext) {
         sqlContext.udf().register(yearExtractor, yearExtractor(), DataTypes.IntegerType);
         sqlContext.udf().register(monthExtractor, monthExtractor(), DataTypes.IntegerType);
         sqlContext.udf().register(quarterExtractor, quarterExtractor(), DataTypes.IntegerType);

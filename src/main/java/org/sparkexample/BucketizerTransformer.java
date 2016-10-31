@@ -35,7 +35,7 @@ public class BucketizerTransformer extends Transformer {
     }
 
     public String getOutputColumn() {
-        return column + "_vector";
+        return column + "_bucket";
     }
 
     public Double getMaxDoubleValue(Dataset<?> df) {
