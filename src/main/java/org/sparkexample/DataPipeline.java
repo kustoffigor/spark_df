@@ -10,6 +10,7 @@ import com.beust.jcommander.ParameterException;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
+import org.apache.spark.ml.classification.LogisticRegression;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -78,6 +79,8 @@ public class DataPipeline {
 
         List<PipelineStage> pipelineStages = new ArrayList<>();
         List<String> columns = new ArrayList<>();
+        String targetColumn = "";
+
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
             PipelineDictionary.BasicTransformation basicTransformation = pipelineData.get(field);
             switch (basicTransformation) {
@@ -107,33 +110,37 @@ public class DataPipeline {
                     columns.add(field.getName() + "_index");
                     pipelineStages.add(indexer);
                     break;
+                case TARGET:
+                    targetColumn = field.getName();
             }
         }
-        //columns = columns.stream().filter(s -> s.contains("_norm")).collect(Collectors.toList());
+        // Column renaming mb switch to transformer
+        dframe = dframe.withColumnRenamed(targetColumn, "label");
+
+        dframe.select(col("label")).show();
+
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
                 .setOutputCol("features");
         pipelineStages.add(assembler);
 
 
-        System.out.println(columns);
+        LogisticRegression lr = new LogisticRegression();
+        lr.setMaxIter(10).setRegParam(0.01);
+
+        pipelineStages.add(lr);
+
         Pipeline pipeline = new Pipeline();
         pipeline.setStages(pipelineStages.toArray(new PipelineStage[pipelineStages.size()]));
         PipelineModel pipelineModel = pipeline.fit(dframe);
 
-        // Save model:
-        // pipelineModel.write().overwrite().save("/tmp/spark/model.ser");
-
-        // Save model:
-//        serialize(new File("/tmp/spark/pipeline.ser"), pipelineModel);
-//        serialize(new File("/tmp/spark/schema.ser"),schema);
-//        PipelineModel model2 = (PipelineModel) deserialize(new File("/tmp/spark/pipeline.ser"));
-
         dframe = pipelineModel.transform(dframe);
         dframe.printSchema();
-        dframe.select(col("features")).show();
-        
 
+        for (Row r: dframe.select("features", "label", "probability", "prediction").collectAsList()) {
+                System.out.println("(" + r.get(0) + ", " + r.get(1) + ") -> prob=" + r.get(2)
+                        + ", prediction=" + r.get(3));
+        }
     }
 
 
