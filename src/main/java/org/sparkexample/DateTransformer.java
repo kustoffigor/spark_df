@@ -71,21 +71,21 @@ public class DateTransformer extends Transformer {
 
         col = df.col(columnAsTimestamp);
         col = functions.callUDF(minuteFromDayBeginningExtractor, col);
-        return df.withColumn("_minuteFromDayBeginning", col);
+        return df.withColumn(column + "_minuteFromDayBeginning", col);
     }
 
     public Set<String> outputColumns() {
-        Set<String> columns = new HashSet<String>();
+        Set<String> columns = new HashSet<>();
         columns.add(column + "_year");
         columns.add(column + "_month");
         columns.add(column + "_weekDay");
         columns.add(column + "_hour");
         columns.add(column + "_minute");
-//        columns.add(column + "_quarter");
-//        columns.add(column + "__weekNumber");
-//        columns.add(column + "_weekDay");
-//        columns.add(column + "_yearDay");
-//        columns.add(column + "_minuteFromDayBeginning");
+        columns.add(column + "_quarter");
+        columns.add(column + "_weekNumber");
+        columns.add(column + "_weekDay");
+        columns.add(column + "_yearDay");
+        columns.add(column + "_minuteFromDayBeginning");
         return columns;
     }
 

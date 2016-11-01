@@ -117,7 +117,7 @@ public class DataPipeline {
         // Column renaming mb switch to transformer
         dframe = dframe.withColumnRenamed(targetColumn, "label");
 
-        dframe.select(col("label")).show();
+        System.out.println(columns);
 
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
@@ -137,7 +137,10 @@ public class DataPipeline {
         dframe = pipelineModel.transform(dframe);
         dframe.printSchema();
 
-        for (Row r: dframe.select("features", "label", "probability", "prediction").collectAsList()) {
+        List<Row> filtered = dframe.select("features", "label", "probability", "prediction")
+                .collectAsList().stream().filter(r -> ((Integer) r.get(1)).intValue() == 1).collect(Collectors.toList());
+
+        for (Row r: filtered) {
                 System.out.println("(" + r.get(0) + ", " + r.get(1) + ") -> prob=" + r.get(2)
                         + ", prediction=" + r.get(3));
         }
