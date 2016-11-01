@@ -2,6 +2,7 @@ package org.sparkexample;
 
 import java.io.*;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.beust.jcommander.JCommander;
@@ -81,6 +82,11 @@ public class DataPipeline {
         List<String> columns = new ArrayList<>();
         String targetColumn = "";
 
+        List<Dataset<Row>> frames = Arrays.asList(dframe.randomSplit(new double[] { 0.7, 0.3}));
+        dframe = frames.get(0);
+
+        Dataset<Row> testData = frames.get(1);
+
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
             PipelineDictionary.BasicTransformation basicTransformation = pipelineData.get(field);
             switch (basicTransformation) {
@@ -116,6 +122,7 @@ public class DataPipeline {
         }
         // Column renaming mb switch to transformer
         dframe = dframe.withColumnRenamed(targetColumn, "label");
+        testData = testData.withColumnRenamed(targetColumn, "label");
 
         System.out.println(columns);
 
@@ -126,7 +133,7 @@ public class DataPipeline {
 
 
         LogisticRegression lr = new LogisticRegression();
-        lr.setMaxIter(10).setRegParam(0.01);
+        lr.setMaxIter(10).setRegParam(0.01).setThreshold(0.15);
 
         pipelineStages.add(lr);
 
@@ -134,11 +141,20 @@ public class DataPipeline {
         pipeline.setStages(pipelineStages.toArray(new PipelineStage[pipelineStages.size()]));
         PipelineModel pipelineModel = pipeline.fit(dframe);
 
-        dframe = pipelineModel.transform(dframe);
-        dframe.printSchema();
+        Dataset<Row> result = pipelineModel.transform(testData);
+        result.printSchema();
 
-        List<Row> filtered = dframe.select("features", "label", "probability", "prediction")
-                .collectAsList().stream().filter(r -> ((Integer) r.get(1)).intValue() == 1).collect(Collectors.toList());
+        List<Row> filtered = result.select("features", "label", "probability", "prediction")
+                .collectAsList().stream().filter(new Predicate<Row>() {
+                    @Override
+                    public boolean test(Row row) {
+                        final Integer label = (Integer) row.get(1);
+                        final Double prediction = (Double) row.get(3);
+                        return label != prediction.intValue();
+                    }
+                }).collect(Collectors.toList());
+
+        System.out.println(filtered.size());
 
         for (Row r: filtered) {
                 System.out.println("(" + r.get(0) + ", " + r.get(1) + ") -> prob=" + r.get(2)
