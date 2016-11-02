@@ -12,7 +12,9 @@ import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
 import org.apache.spark.ml.classification.LogisticRegression;
+import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
+import org.apache.spark.ml.regression.DecisionTreeRegressor;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SQLContext;
@@ -82,7 +84,7 @@ public class DataPipeline {
         List<String> columns = new ArrayList<>();
         String targetColumn = "";
 
-        List<Dataset<Row>> frames = Arrays.asList(dframe.randomSplit(new double[] { 0.7, 0.3}));
+        List<Dataset<Row>> frames = Arrays.asList(dframe.randomSplit(new double[]{0.7, 0.3}));
         dframe = frames.get(0);
 
         Dataset<Row> testData = frames.get(1);
@@ -120,11 +122,6 @@ public class DataPipeline {
                     targetColumn = field.getName();
             }
         }
-        // Column renaming mb switch to transformer
-        dframe = dframe.withColumnRenamed(targetColumn, "label");
-        testData = testData.withColumnRenamed(targetColumn, "label");
-
-        System.out.println(columns);
 
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
@@ -132,34 +129,41 @@ public class DataPipeline {
         pipelineStages.add(assembler);
 
 
-        LogisticRegression lr = new LogisticRegression();
+        LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
         lr.setMaxIter(10).setRegParam(0.01).setThreshold(0.15);
 
-        pipelineStages.add(lr);
+        List<PipelineStage> logisticRegressionStages = new ArrayList<>(pipelineStages);
+        logisticRegressionStages.add(lr);
+        Pipeline logisticRegression = new Pipeline();
+        logisticRegression.setStages(logisticRegressionStages.toArray(new PipelineStage[logisticRegressionStages.size()]));
+        PipelineModel logisticRegressionModel = logisticRegression.fit(dframe);
 
-        Pipeline pipeline = new Pipeline();
-        pipeline.setStages(pipelineStages.toArray(new PipelineStage[pipelineStages.size()]));
-        PipelineModel pipelineModel = pipeline.fit(dframe);
 
-        Dataset<Row> result = pipelineModel.transform(testData);
-        result.printSchema();
+        Dataset<Row> logisticResult = logisticRegressionModel.transform(testData);
+        logisticResult.printSchema();
 
-        List<Row> filtered = result.select("features", "label", "probability", "prediction")
-                .collectAsList().stream().filter(new Predicate<Row>() {
-                    @Override
-                    public boolean test(Row row) {
-                        final Integer label = (Integer) row.get(1);
-                        final Double prediction = (Double) row.get(3);
-                        return label != prediction.intValue();
-                    }
-                }).collect(Collectors.toList());
+        RegressionEvaluator evaluator = new RegressionEvaluator()
+                .setLabelCol(targetColumn)
+                .setPredictionCol("prediction")
+                .setMetricName("rmse");
+        double logisticRegressionRMSE = evaluator.evaluate(logisticResult);
+        System.out.println("Logistic regression Root Mean Squared Error (RMSE) on test data = " + logisticRegressionRMSE);
 
-        System.out.println(filtered.size());
 
-        for (Row r: filtered) {
-                System.out.println("(" + r.get(0) + ", " + r.get(1) + ") -> prob=" + r.get(2)
-                        + ", prediction=" + r.get(3));
-        }
+        DecisionTreeRegressor dt = new DecisionTreeRegressor();
+        dt.setLabelCol(targetColumn);
+        List<PipelineStage> decisionTreeStages = new ArrayList<>(pipelineStages);
+        decisionTreeStages.add(dt);
+        Pipeline decisionTree = new Pipeline();
+        decisionTree.setStages(decisionTreeStages.toArray(new PipelineStage[decisionTreeStages.size()]));
+        PipelineModel decisionTreeModel = decisionTree.fit(dframe);
+
+        Dataset<Row> decisionResult = decisionTreeModel.transform(testData);
+        decisionResult.printSchema();
+
+        double decisionTreeRMSE = evaluator.evaluate(decisionResult);
+        System.out.println("Decision Tree Root Mean Squared Error (RMSE) on test data = " + decisionTreeRMSE);
+
     }
 
 
