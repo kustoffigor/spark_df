@@ -67,8 +67,7 @@ public class PipelineDictionary {
         CONTINIOUS("continious"),
         NOMINAL("nominal"),
         FLAG("flag"),
-        TEXT("text"),
-        CATEGORICAL("categorical");
+        TEXT("text");
 
         private final String value;
 
@@ -94,10 +93,8 @@ public class PipelineDictionary {
         TARGET,
         DATE,
         DOUBLE,
-        CURRENCY,
         NOMINAL,
-        TEXT,
-        CATEGORICAL
+        TEXT
     }
 
     public static class FieldRaw {
@@ -119,19 +116,6 @@ public class PipelineDictionary {
         public String getName() {
             return name;
         }
-
-        public DataType getDataType() {
-            return dataType;
-        }
-
-        public ValueType getValueType() {
-            return valueType;
-        }
-
-        public UsageType getUsageType() {
-            return usageType;
-        }
-
         private final String name;
         private final DataType dataType;
         private final ValueType valueType;
@@ -173,16 +157,12 @@ public class PipelineDictionary {
                 return BasicTransformation.DATE;
             case DOUBLE:
                 return BasicTransformation.DOUBLE;
-            case CURRENCY:
-                return BasicTransformation.CURRENCY;
             case STRING:
                 switch (field.valueType) {
                     case NOMINAL:
                         return BasicTransformation.NOMINAL;
                     case TEXT:
                         return BasicTransformation.TEXT;
-                    case CATEGORICAL:
-                        return BasicTransformation.CATEGORICAL;
                 }
         }
         throw new IllegalArgumentException("wrong field");

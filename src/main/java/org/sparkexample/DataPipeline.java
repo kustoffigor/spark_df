@@ -2,8 +2,6 @@ package org.sparkexample;
 
 import java.io.*;
 import java.util.*;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -15,23 +13,23 @@ import org.apache.spark.ml.classification.LogisticRegression;
 import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.ml.regression.DecisionTreeRegressor;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SQLContext;
-import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.*;
+import org.apache.spark.sql.types.StructType;
+import org.dmg.pmml.PMML;
+import org.jpmml.model.MetroJAXBUtil;
 import org.jpmml.model.SerializationUtil;
+import org.jpmml.sparkml.ConverterUtil;
 
-import static org.apache.spark.sql.functions.*;
-import static org.sparkexample.Config.buildSqlOptions;
+import static org.sparkexample.SQLConfig.buildSqlOptions;
 
 
 public class DataPipeline {
     @Parameter(
             names = "--json-metadata",
-            description = "CSV_Input File",
+            description = "Json Metadata",
             required = true
     )
-    private File pipelineInput = null;
+    private File jsonMetadataFile = null;
 
     static
     private Object deserialize(File file) throws ClassNotFoundException, IOException {
@@ -70,48 +68,53 @@ public class DataPipeline {
             System.exit(-1);
         }
 
-        PipelineDictionary pipelineDictionary = new PipelineDictionary();
-        Map<PipelineDictionary.Field, PipelineDictionary.BasicTransformation> pipelineData = pipelineDictionary.parseJSONData(pipelineExample.pipelineInput);
+        final PipelineDictionary pipelineDictionary = new PipelineDictionary();
+        final Map<PipelineDictionary.Field, PipelineDictionary.BasicTransformation> pipelineData = pipelineDictionary.parseJSONData(pipelineExample.jsonMetadataFile);
 
         SparkSession spark = SparkSession
                 .builder()
                 .appName("JavaPipelineExample")
                 .getOrCreate();
         SQLContext sqlContext = new SQLContext(spark);
-        Dataset<Row> dframe = sqlContext.load("jdbc", buildSqlOptions());
+
+
+        Dataset<Row> initialData = sqlContext.load("jdbc", buildSqlOptions());
+        initialData.printSchema();
+
 
         List<PipelineStage> pipelineStages = new ArrayList<>();
         List<String> columns = new ArrayList<>();
         String targetColumn = "";
 
-        List<Dataset<Row>> frames = Arrays.asList(dframe.randomSplit(new double[]{0.7, 0.3}));
-        dframe = frames.get(0);
+        List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.7, 0.3}));
+        Dataset<Row> dframe = frames.get(0);
 
         Dataset<Row> testData = frames.get(1);
+
 
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
             PipelineDictionary.BasicTransformation basicTransformation = pipelineData.get(field);
             switch (basicTransformation) {
                 case DATE:
-                    DateTransformer dateTransformer = new DateTransformer(field.getName());
-                    pipelineStages.add(dateTransformer);
-                    columns.addAll(dateTransformer.outputColumns());
+//                    DateTransformer dateTransformer = new DateTransformer(field.getName());
+//                    pipelineStages.add(dateTransformer);
+//                    columns.addAll(dateTransformer.outputColumns());
                     break;
                 case DOUBLE:
-                    VectorizerTransformer vectorizerTransformer = new VectorizerTransformer(field.getName());
-                    pipelineStages.add(vectorizerTransformer);
-                    StandardScaler scaler = new StandardScaler()
-                            .setInputCol(vectorizerTransformer.getOutputColumn())
-                            .setOutputCol(field.getName() + "_norm")
-                            .setWithStd(true)
-                            .setWithMean(true);
-                    columns.add(field.getName() + "_norm");
-                    pipelineStages.add(scaler);
-                    BucketizerTransformer bucketizerTransformer = new BucketizerTransformer(field.getName() + "_double");
-                    columns.add(bucketizerTransformer.getOutputColumn());
-                    pipelineStages.add(bucketizerTransformer);
+                    final String bucketizerOutput = field.getName() + "_bucket";
+                    double max = (Double) initialData.groupBy().max(field.getName()).collectAsList().get(0).get(0);
+                    double min = (Double) initialData.groupBy().min(field.getName()).collectAsList().get(0).get(0);
+                    double step = (max - min) / 4;
+                    double[] splits = {Double.NEGATIVE_INFINITY, min, min + step, min + 2 * step, min + 3 * step, max, Double.POSITIVE_INFINITY};
+                    Bucketizer bucketizer = new Bucketizer()
+                            .setInputCol(field.getName())
+                            .setOutputCol(bucketizerOutput)
+                            .setSplits(splits);
+                    pipelineStages.add(bucketizer);
+                    columns.add(bucketizerOutput);
+                    columns.add(field.getName());
                     break;
-                case CATEGORICAL:
+                case NOMINAL:
                     StringIndexer indexer = new StringIndexer()
                             .setInputCol(field.getName())
                             .setOutputCol(field.getName() + "_index");
@@ -128,15 +131,23 @@ public class DataPipeline {
                 .setOutputCol("features");
         pipelineStages.add(assembler);
 
+        StandardScaler scaler = new StandardScaler()
+                .setInputCol("features")
+                .setOutputCol("scaledFeatures")
+                .setWithStd(true)
+                .setWithMean(true);
+        pipelineStages.add(scaler);
+
 
         LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
-        lr.setMaxIter(10).setRegParam(0.01).setThreshold(0.15);
-
+        lr.setMaxIter(10).setRegParam(0.01).setFeaturesCol("features");
         List<PipelineStage> logisticRegressionStages = new ArrayList<>(pipelineStages);
         logisticRegressionStages.add(lr);
         Pipeline logisticRegression = new Pipeline();
         logisticRegression.setStages(logisticRegressionStages.toArray(new PipelineStage[logisticRegressionStages.size()]));
         PipelineModel logisticRegressionModel = logisticRegression.fit(dframe);
+
+        dframe.printSchema();
 
 
         Dataset<Row> logisticResult = logisticRegressionModel.transform(testData);
@@ -161,8 +172,13 @@ public class DataPipeline {
         Dataset<Row> decisionResult = decisionTreeModel.transform(testData);
         decisionResult.printSchema();
 
+
         double decisionTreeRMSE = evaluator.evaluate(decisionResult);
         System.out.println("Decision Tree Root Mean Squared Error (RMSE) on test data = " + decisionTreeRMSE);
+
+        PMML pmml = ConverterUtil.toPMML(initialData.schema(), logisticRegressionModel);
+        MetroJAXBUtil.marshalPMML(pmml, new FileOutputStream(new File("/tmp/model.pmml")));
+
 
     }
 

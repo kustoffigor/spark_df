@@ -3,7 +3,7 @@ package org.sparkexample;
 import java.util.HashMap;
 import java.util.Map;
 
-public class Config {
+public class SQLConfig {
     public static Map<String, String> buildSqlOptions() {
         try {
             Class.forName("org.postgresql.Driver");

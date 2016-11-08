@@ -29,7 +29,7 @@
       "name": "debt_account",
       "dataType": "string",
       "valueType": "nominal",
-      "usageType": "feature",
+      "usageType": "skip",
       "explicitTransform": [
         "oneToMany",
         "profile"
@@ -43,6 +43,12 @@
     },
     {
       "name": "cred_bal",
+      "dataType": "double",
+      "valueType": "continious",
+      "usageType": "feature"
+    },
+    {
+      "name": "debt_bal",
       "dataType": "double",
       "valueType": "continious",
       "usageType": "feature"
@@ -64,12 +70,6 @@
       "dataType": "boolean",
       "valueType": "flag",
       "usageType": "targetField"
-    },
-    {
-      "name" : "trans_cur",
-      "dataType" : "string",
-      "valueType" : "categorical",
-      "usageType" : "feature"
     }
   ]
 }
