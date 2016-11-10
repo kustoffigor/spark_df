@@ -1,8 +1,10 @@
 package org.sparkexample;
 
 import java.io.*;
+import java.sql.Timestamp;
 import java.util.*;
 
+import com.antifraud.UnaryUDFTransformer;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
@@ -14,12 +16,15 @@ import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.ml.regression.DecisionTreeRegressor;
 import org.apache.spark.sql.*;
+import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 import org.dmg.pmml.PMML;
 import org.jpmml.model.MetroJAXBUtil;
 import org.jpmml.model.SerializationUtil;
 import org.jpmml.sparkml.ConverterUtil;
 
+
+import static org.apache.spark.sql.functions.col;
 import static org.sparkexample.SQLConfig.buildSqlOptions;
 
 
@@ -81,12 +86,11 @@ public class DataPipeline {
         Dataset<Row> initialData = sqlContext.load("jdbc", buildSqlOptions());
         initialData.printSchema();
 
-
         List<PipelineStage> pipelineStages = new ArrayList<>();
         List<String> columns = new ArrayList<>();
         String targetColumn = "";
 
-        List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.7, 0.3}));
+        List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.9, 0.1}));
         Dataset<Row> dframe = frames.get(0);
 
         Dataset<Row> testData = frames.get(1);
@@ -99,6 +103,9 @@ public class DataPipeline {
 //                    DateTransformer dateTransformer = new DateTransformer(field.getName());
 //                    pipelineStages.add(dateTransformer);
 //                    columns.addAll(dateTransformer.outputColumns());
+                    dframe = dframe.withColumn(field.getName() + "_timestamp", col(field.getName()).cast("timestamp"));
+                    testData = testData.withColumn(field.getName() + "_timestamp", col(field.getName()).cast("timestamp"));
+
                     break;
                 case DOUBLE:
                     final String bucketizerOutput = field.getName() + "_bucket";
@@ -117,19 +124,26 @@ public class DataPipeline {
                 case NOMINAL:
                     StringIndexer indexer = new StringIndexer()
                             .setInputCol(field.getName())
-                            .setOutputCol(field.getName() + "_index");
-                    columns.add(field.getName() + "_index");
+                            .setOutputCol(field.getName() + "_idx");
+                    //columns.add(field.getName() + "_idx");
+                        OneHotEncoder oneHotEncoder = new OneHotEncoder().setInputCol(indexer.getOutputCol());
                     pipelineStages.add(indexer);
+                    pipelineStages.add(oneHotEncoder);
+                    columns.add(oneHotEncoder.getOutputCol());
                     break;
                 case TARGET:
                     targetColumn = field.getName();
             }
         }
-
+        System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
+        System.out.println(columns);
+        System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
                 .setOutputCol("features");
         pipelineStages.add(assembler);
+
+
 
         StandardScaler scaler = new StandardScaler()
                 .setInputCol("features")
