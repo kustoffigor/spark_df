@@ -4,7 +4,7 @@ import java.io.*;
 import java.sql.Timestamp;
 import java.util.*;
 
-import com.antifraud.UnaryUDFTransformer;
+import com.antifraud.YearExtractor;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
@@ -91,9 +91,9 @@ public class DataPipeline {
         String targetColumn = "";
 
         List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.9, 0.1}));
-        Dataset<Row> dframe = frames.get(0);
+        Dataset<Row> dataForLearning = frames.get(0);
 
-        Dataset<Row> testData = frames.get(1);
+        Dataset<Row> dataForTesting = frames.get(1);
 
 
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
@@ -103,9 +103,9 @@ public class DataPipeline {
 //                    DateTransformer dateTransformer = new DateTransformer(field.getName());
 //                    pipelineStages.add(dateTransformer);
 //                    columns.addAll(dateTransformer.outputColumns());
-                    dframe = dframe.withColumn(field.getName() + "_timestamp", col(field.getName()).cast("timestamp"));
-                    testData = testData.withColumn(field.getName() + "_timestamp", col(field.getName()).cast("timestamp"));
-
+                    YearExtractor yearExtractor = new YearExtractor().setInputCol(field.getName()).setOutputCol("year");
+                    columns.add(yearExtractor.getOutputCol());
+                    pipelineStages.add(yearExtractor);
                     break;
                 case DOUBLE:
                     final String bucketizerOutput = field.getName() + "_bucket";
@@ -136,7 +136,7 @@ public class DataPipeline {
             }
         }
         System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
-        System.out.println(columns);
+        System.out.println(new YearExtractor().uid());
         System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
@@ -145,12 +145,12 @@ public class DataPipeline {
 
 
 
-        StandardScaler scaler = new StandardScaler()
-                .setInputCol("features")
-                .setOutputCol("scaledFeatures")
-                .setWithStd(true)
-                .setWithMean(true);
-        pipelineStages.add(scaler);
+//        StandardScaler scaler = new StandardScaler()
+//                .setInputCol("features")
+//                .setOutputCol("scaledFeatures")
+//                .setWithStd(true)
+//                .setWithMean(true);
+//        pipelineStages.add(scaler);
 
 
         LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
@@ -159,12 +159,12 @@ public class DataPipeline {
         logisticRegressionStages.add(lr);
         Pipeline logisticRegression = new Pipeline();
         logisticRegression.setStages(logisticRegressionStages.toArray(new PipelineStage[logisticRegressionStages.size()]));
-        PipelineModel logisticRegressionModel = logisticRegression.fit(dframe);
+        PipelineModel logisticRegressionModel = logisticRegression.fit(dataForLearning);
 
-        dframe.printSchema();
+        dataForLearning.printSchema();
 
 
-        Dataset<Row> logisticResult = logisticRegressionModel.transform(testData);
+        Dataset<Row> logisticResult = logisticRegressionModel.transform(dataForTesting);
         logisticResult.printSchema();
 
         RegressionEvaluator evaluator = new RegressionEvaluator()
@@ -181,10 +181,11 @@ public class DataPipeline {
         decisionTreeStages.add(dt);
         Pipeline decisionTree = new Pipeline();
         decisionTree.setStages(decisionTreeStages.toArray(new PipelineStage[decisionTreeStages.size()]));
-        PipelineModel decisionTreeModel = decisionTree.fit(dframe);
+        PipelineModel decisionTreeModel = decisionTree.fit(dataForLearning);
 
-        Dataset<Row> decisionResult = decisionTreeModel.transform(testData);
+        Dataset<Row> decisionResult = decisionTreeModel.transform(dataForTesting);
         decisionResult.printSchema();
+        decisionResult.select(col("trans_date"),col("year")).show();
 
 
         double decisionTreeRMSE = evaluator.evaluate(decisionResult);
