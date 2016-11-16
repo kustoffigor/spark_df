@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/antifrod.iml" filepath="$PROJECT_DIR$/antifrod.iml" />
+      <module fileurl="file://$PROJECT_DIR$/antifraud.iml" filepath="$PROJECT_DIR$/antifraud.iml" />
     </modules>
   </component>
 </project>

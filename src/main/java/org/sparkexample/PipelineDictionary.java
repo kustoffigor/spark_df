@@ -1,9 +1,12 @@
 package org.sparkexample;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.io.File;
-import java.io.IOException;
+
+import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
 
@@ -168,11 +171,21 @@ public class PipelineDictionary {
         throw new IllegalArgumentException("wrong field");
     }
 
-    public Map<Field, BasicTransformation> parseJSONData(File f) {
+    public Map<Field, BasicTransformation> parseJSONData(final String jsonMetadata) {
         try {
-            byte[] encoded = Files.readAllBytes(f.toPath());
-            String fileData = new String(encoded, "UTF-8");
-            JSONObject obj = new JSONObject(fileData);
+            Path pt = new Path(jsonMetadata);
+            FileSystem fs = FileSystem.get(new Configuration());
+            BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(pt)));
+
+            String contents = "";
+            String line = br.readLine();
+            contents += line;
+            while (line != null) {
+                System.out.println(line);
+                line = br.readLine();
+                contents += line;
+            }
+            JSONObject obj = new JSONObject(contents);
             JSONArray fieldsArray = obj.getJSONArray("attrs");
             List<FieldRaw> fieldRaws = new ArrayList<>();
 
@@ -184,6 +197,7 @@ public class PipelineDictionary {
                 fieldRaw.dataType = fieldsObject.getString("dataType");
                 fieldRaw.usageType = fieldsObject.getString("usageType");
                 fieldRaws.add(fieldRaw);
+
             }
             return preparePipelineData(fieldRaws);
         } catch (IOException ex) {

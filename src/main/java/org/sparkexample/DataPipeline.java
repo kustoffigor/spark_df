@@ -1,13 +1,15 @@
 package org.sparkexample;
 
 import java.io.*;
-import java.sql.Timestamp;
+import java.math.BigDecimal;
+import java.net.URI;
 import java.util.*;
-
-import com.antifraud.YearExtractor;
+import java.util.stream.Collectors;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.*;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
@@ -16,15 +18,14 @@ import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.ml.regression.DecisionTreeRegressor;
 import org.apache.spark.sql.*;
+import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.StructField;
 import org.dmg.pmml.PMML;
 import org.jpmml.model.MetroJAXBUtil;
 import org.jpmml.model.SerializationUtil;
 import org.jpmml.sparkml.ConverterUtil;
-
-
-import static org.apache.spark.sql.functions.col;
 import static org.sparkexample.SQLConfig.buildSqlOptions;
 
 
@@ -34,7 +35,36 @@ public class DataPipeline {
             description = "Json Metadata",
             required = true
     )
-    private File jsonMetadataFile = null;
+    private String jsonMetadataFile = null;
+
+    @Parameter(
+            names = "--output-pmml",
+            description = "Output PMML Model",
+            required = true
+    )
+    private String outputPmmlFile = null;
+
+    @Parameter(
+            names = "--dbUrl",
+            description = "Database URL",
+            required = true
+    )
+    private String dbUrl = null;
+
+    @Parameter(
+            names = "--dbUsername",
+            description = "Database username",
+            required = true
+    )
+    private String dbUsername = null;
+
+    @Parameter(names = "--dbPassword",description = "Database password",required = true)
+    private String dbPassword = null;
+
+
+    @Parameter(names = "--dbTable",description = "Database table",required = true)
+    private String dbTable = null;
+
 
     static
     private Object deserialize(File file) throws ClassNotFoundException, IOException {
@@ -83,17 +113,39 @@ public class DataPipeline {
         SQLContext sqlContext = new SQLContext(spark);
 
 
-        Dataset<Row> initialData = sqlContext.load("jdbc", buildSqlOptions());
+        SQLConfig.InputData inputData = new SQLConfig.InputData()
+                .setUrl(pipelineExample.dbUrl)
+                .setUname(pipelineExample.dbUsername)
+                .setPassword(pipelineExample.dbPassword)
+                .setTable(pipelineExample.dbTable);
+
+        Dataset<Row> initialData = sqlContext.load("jdbc", buildSqlOptions(inputData));
+
         initialData.printSchema();
 
         List<PipelineStage> pipelineStages = new ArrayList<>();
         List<String> columns = new ArrayList<>();
         String targetColumn = "";
 
-        List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.9, 0.1}));
-        Dataset<Row> dataForLearning = frames.get(0);
+        // replacing decimal fields.
+        StructField[] fields =  initialData.schema().fields();
+        List<String> structFields = Arrays.asList(fields).stream().filter(f -> f.dataType() instanceof DecimalType).map(f -> f.name()).collect(Collectors.toList());
 
+        UDF1<BigDecimal, Double> bigDecimalConverter = (UDF1<BigDecimal, Double>) bigDecimal -> bigDecimal.doubleValue();
+        sqlContext.udf().register("decimalConverter", bigDecimalConverter, DataTypes.DoubleType);
+
+        for (final String field : structFields) {
+            Column column = initialData.col(field);
+            column = functions.callUDF("decimalConverter", column);
+            initialData = initialData.withColumn(field + "_tmp", column).drop(field).withColumnRenamed(field + "_tmp", field);
+        }
+
+
+
+        List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.8, 0.2}));
+        Dataset<Row> dataForLearning = frames.get(0);
         Dataset<Row> dataForTesting = frames.get(1);
+
 
 
         for (PipelineDictionary.Field field : pipelineData.keySet()) {
@@ -103,9 +155,9 @@ public class DataPipeline {
 //                    DateTransformer dateTransformer = new DateTransformer(field.getName());
 //                    pipelineStages.add(dateTransformer);
 //                    columns.addAll(dateTransformer.outputColumns());
-                    YearExtractor yearExtractor = new YearExtractor().setInputCol(field.getName()).setOutputCol("year");
-                    columns.add(yearExtractor.getOutputCol());
-                    pipelineStages.add(yearExtractor);
+//                    YearExtractor yearExtractor = new YearExtractor().setInputCol(field.getName()).setOutputCol("year");
+//                    columns.add(yearExtractor.getOutputCol());
+//                    pipelineStages.add(yearExtractor);
                     break;
                 case DOUBLE:
                     final String bucketizerOutput = field.getName() + "_bucket";
@@ -125,8 +177,7 @@ public class DataPipeline {
                     StringIndexer indexer = new StringIndexer()
                             .setInputCol(field.getName())
                             .setOutputCol(field.getName() + "_idx");
-                    //columns.add(field.getName() + "_idx");
-                        OneHotEncoder oneHotEncoder = new OneHotEncoder().setInputCol(indexer.getOutputCol());
+                    final OneHotEncoder oneHotEncoder = new OneHotEncoder().setInputCol(indexer.getOutputCol());
                     pipelineStages.add(indexer);
                     pipelineStages.add(oneHotEncoder);
                     columns.add(oneHotEncoder.getOutputCol());
@@ -135,15 +186,11 @@ public class DataPipeline {
                     targetColumn = field.getName();
             }
         }
-        System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
-        System.out.println(new YearExtractor().uid());
-        System.out.println("XXXXXXXXXXXXXXXXXXXXXX");
+
         VectorAssembler assembler = new VectorAssembler()
                 .setInputCols(columns.toArray(new String[columns.size()]))
                 .setOutputCol("features");
         pipelineStages.add(assembler);
-
-
 
 //        StandardScaler scaler = new StandardScaler()
 //                .setInputCol("features")
@@ -151,7 +198,6 @@ public class DataPipeline {
 //                .setWithStd(true)
 //                .setWithMean(true);
 //        pipelineStages.add(scaler);
-
 
         LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
         lr.setMaxIter(10).setRegParam(0.01).setFeaturesCol("features");
@@ -185,16 +231,20 @@ public class DataPipeline {
 
         Dataset<Row> decisionResult = decisionTreeModel.transform(dataForTesting);
         decisionResult.printSchema();
-        decisionResult.select(col("trans_date"),col("year")).show();
 
 
         double decisionTreeRMSE = evaluator.evaluate(decisionResult);
         System.out.println("Decision Tree Root Mean Squared Error (RMSE) on test data = " + decisionTreeRMSE);
 
+        logisticRegressionModel.write().overwrite().save(pipelineExample.outputPmmlFile + ".model");
+
         PMML pmml = ConverterUtil.toPMML(initialData.schema(), logisticRegressionModel);
-        MetroJAXBUtil.marshalPMML(pmml, new FileOutputStream(new File("/tmp/model.pmml")));
-
-
+        FileSystem hdfs = FileSystem.get(new Configuration());
+        Path file = new Path(pipelineExample.outputPmmlFile);
+        if ( hdfs.exists( file )) { hdfs.delete( file, true ); }
+        OutputStream os = hdfs.create(file);
+        MetroJAXBUtil.marshalPMML(pmml, os);
+        os.close();
     }
 
 

@@ -1,0 +1,13 @@
+org/sparkexample/PipelineDictionary.class
+org/sparkexample/PipelineDictionary$ValueType.class
+org/sparkexample/DataPipeline.class
+org/sparkexample/SQLConfig.class
+org/sparkexample/DateTransformer.class
+org/sparkexample/SQLConfig$InputData.class
+org/sparkexample/PipelineDictionary$1.class
+org/sparkexample/DataPipeline$1.class
+org/sparkexample/PipelineDictionary$FieldRaw.class
+org/sparkexample/PipelineDictionary$DataType.class
+org/sparkexample/PipelineDictionary$Field.class
+org/sparkexample/PipelineDictionary$UsageType.class
+org/sparkexample/PipelineDictionary$BasicTransformation.class

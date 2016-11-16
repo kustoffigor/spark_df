@@ -1,0 +1,75 @@
+{
+  "name": "transaction_event",
+  "attrs": [
+    {
+      "name": "id_transaction",
+      "dataType": "integer",
+      "valueType": "continious",
+      "usageType": "keyField"
+    },
+    {
+      "name": "trans_amount",
+      "dataType": "double",
+      "valueType": "continious",
+      "usageType": "feature"
+    },
+    {
+      "name": "trans_date",
+      "dataType": "date-time",
+      "valueType": "continious",
+      "usageType": "feature"
+    },
+    {
+      "name": "trans_cur",
+      "dataType": "string",
+      "valueType": "nominal",
+      "usageType": "feature"
+    },
+    {
+      "name": "debt_account",
+      "dataType": "string",
+      "valueType": "nominal",
+      "usageType": "skip",
+      "explicitTransform": [
+        "oneToMany",
+        "profile"
+      ]
+    },
+    {
+      "name": "cred_account",
+      "dataType": "string",
+      "valueType": "nominal",
+      "usageType": "skip"
+    },
+    {
+      "name": "cred_bal",
+      "dataType": "double",
+      "valueType": "continious",
+      "usageType": "feature"
+    },
+    {
+      "name": "debt_bal",
+      "dataType": "double",
+      "valueType": "continious",
+      "usageType": "feature"
+    },
+    {
+      "name": "payer_fio",
+      "dataType": "string",
+      "valueType": "text",
+      "usageType": "feature"
+    },
+    {
+      "name": "reciver_fio",
+      "dataType": "string",
+      "valueType": "text",
+      "usageType": "feature"
+    },
+    {
+      "name": "is_fraud",
+      "dataType": "boolean",
+      "valueType": "flag",
+      "usageType": "targetField"
+    }
+  ]
+}
