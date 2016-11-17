@@ -173,9 +173,11 @@ public class PipelineDictionary {
 
     public Map<Field, BasicTransformation> parseJSONData(final String jsonMetadata) {
         try {
-            Path pt = new Path(jsonMetadata);
-            FileSystem fs = FileSystem.get(new Configuration());
-            BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(pt)));
+
+//            Path pt = new Path(jsonMetadata);
+//            FileSystem fs = FileSystem.get(new Configuration());
+//            BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(pt)));
+            BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(jsonMetadata)));
 
             String contents = "";
             String line = br.readLine();

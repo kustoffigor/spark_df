@@ -10,13 +10,24 @@ import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.Function;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
+import org.apache.spark.ml.Transformer;
+import org.apache.spark.ml.classification.BinaryLogisticRegressionSummary;
 import org.apache.spark.ml.classification.LogisticRegression;
+import org.apache.spark.ml.classification.LogisticRegressionModel;
+import org.apache.spark.ml.classification.LogisticRegressionTrainingSummary;
+import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator;
 import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
+import org.apache.spark.ml.linalg.DenseVector;
 import org.apache.spark.ml.regression.DecisionTreeRegressor;
+import org.apache.spark.ml.regression.LinearRegressionModel;
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics;
+import org.apache.spark.mllib.evaluation.RegressionMetrics;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
@@ -26,6 +37,12 @@ import org.dmg.pmml.PMML;
 import org.jpmml.model.MetroJAXBUtil;
 import org.jpmml.model.SerializationUtil;
 import org.jpmml.sparkml.ConverterUtil;
+import scala.Tuple2;
+
+import static org.apache.spark.sql.functions.col;
+
+import javax.xml.bind.JAXBException;
+
 import static org.sparkexample.SQLConfig.buildSqlOptions;
 
 
@@ -143,8 +160,8 @@ public class DataPipeline {
 
 
         List<Dataset<Row>> frames = Arrays.asList(initialData.randomSplit(new double[]{0.8, 0.2}));
-        Dataset<Row> dataForLearning = frames.get(0);
-        Dataset<Row> dataForTesting = frames.get(1);
+        Dataset<Row> learningData = frames.get(0);
+        Dataset<Row> testData = frames.get(1);
 
 
 
@@ -192,55 +209,35 @@ public class DataPipeline {
                 .setOutputCol("features");
         pipelineStages.add(assembler);
 
-//        StandardScaler scaler = new StandardScaler()
-//                .setInputCol("features")
-//                .setOutputCol("scaledFeatures")
-//                .setWithStd(true)
-//                .setWithMean(true);
-//        pipelineStages.add(scaler);
-
         LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
         lr.setMaxIter(10).setRegParam(0.01).setFeaturesCol("features");
         List<PipelineStage> logisticRegressionStages = new ArrayList<>(pipelineStages);
         logisticRegressionStages.add(lr);
         Pipeline logisticRegression = new Pipeline();
         logisticRegression.setStages(logisticRegressionStages.toArray(new PipelineStage[logisticRegressionStages.size()]));
-        PipelineModel logisticRegressionModel = logisticRegression.fit(dataForLearning);
-
-        dataForLearning.printSchema();
+        PipelineModel logisticRegressionModel = logisticRegression.fit(learningData);
 
 
-        Dataset<Row> logisticResult = logisticRegressionModel.transform(dataForTesting);
+        Dataset<Row> logisticResult = logisticRegressionModel.transform(testData);
         logisticResult.printSchema();
 
         RegressionEvaluator evaluator = new RegressionEvaluator()
                 .setLabelCol(targetColumn)
                 .setPredictionCol("prediction")
                 .setMetricName("rmse");
+
+        System.out.println("EXXXPLAIN: " + evaluator.explainParams());
         double logisticRegressionRMSE = evaluator.evaluate(logisticResult);
         System.out.println("Logistic regression Root Mean Squared Error (RMSE) on test data = " + logisticRegressionRMSE);
 
 
-        DecisionTreeRegressor dt = new DecisionTreeRegressor();
-        dt.setLabelCol(targetColumn);
-        List<PipelineStage> decisionTreeStages = new ArrayList<>(pipelineStages);
-        decisionTreeStages.add(dt);
-        Pipeline decisionTree = new Pipeline();
-        decisionTree.setStages(decisionTreeStages.toArray(new PipelineStage[decisionTreeStages.size()]));
-        PipelineModel decisionTreeModel = decisionTree.fit(dataForLearning);
+        savePMML(pipelineExample.outputPmmlFile, initialData, logisticRegressionModel);
+    }
 
-        Dataset<Row> decisionResult = decisionTreeModel.transform(dataForTesting);
-        decisionResult.printSchema();
-
-
-        double decisionTreeRMSE = evaluator.evaluate(decisionResult);
-        System.out.println("Decision Tree Root Mean Squared Error (RMSE) on test data = " + decisionTreeRMSE);
-
-        logisticRegressionModel.write().overwrite().save(pipelineExample.outputPmmlFile + ".model");
-
+    private static void savePMML(String outputPmmlFile, Dataset<Row> initialData, PipelineModel logisticRegressionModel) throws IOException, JAXBException {
         PMML pmml = ConverterUtil.toPMML(initialData.schema(), logisticRegressionModel);
         FileSystem hdfs = FileSystem.get(new Configuration());
-        Path file = new Path(pipelineExample.outputPmmlFile);
+        Path file = new Path(outputPmmlFile);
         if ( hdfs.exists( file )) { hdfs.delete( file, true ); }
         OutputStream os = hdfs.create(file);
         MetroJAXBUtil.marshalPMML(pmml, os);
