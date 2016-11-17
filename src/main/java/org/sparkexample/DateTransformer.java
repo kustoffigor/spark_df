@@ -16,7 +16,7 @@ import java.util.Set;
 
 import static org.apache.spark.sql.functions.col;
 
-public class DateTransformer {
+public class DateTransformer extends Transformer {
     private static final long serialVersionUID = 5545470640951989469L;
     private static final String EXTRACT_YEAR_UDF = "extractYear";
     private static final String TRANSFORMED_COLUMN = "Topic";
