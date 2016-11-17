@@ -16,10 +16,7 @@ import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
 import org.apache.spark.ml.Transformer;
-import org.apache.spark.ml.classification.BinaryLogisticRegressionSummary;
-import org.apache.spark.ml.classification.LogisticRegression;
-import org.apache.spark.ml.classification.LogisticRegressionModel;
-import org.apache.spark.ml.classification.LogisticRegressionTrainingSummary;
+import org.apache.spark.ml.classification.*;
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator;
 import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
@@ -209,33 +206,32 @@ public class DataPipeline {
                 .setOutputCol("features");
         pipelineStages.add(assembler);
 
-        LogisticRegression lr = new LogisticRegression().setLabelCol(targetColumn);
-        lr.setMaxIter(10).setRegParam(0.01).setFeaturesCol("features");
-        List<PipelineStage> logisticRegressionStages = new ArrayList<>(pipelineStages);
-        logisticRegressionStages.add(lr);
-        Pipeline logisticRegression = new Pipeline();
-        logisticRegression.setStages(logisticRegressionStages.toArray(new PipelineStage[logisticRegressionStages.size()]));
-        PipelineModel logisticRegressionModel = logisticRegression.fit(learningData);
+        GBTClassifier gbtClassifier = new GBTClassifier();
+        gbtClassifier.setFeaturesCol("features").setLabelCol(targetColumn);
+        List<PipelineStage> gbtStages = new ArrayList<>(pipelineStages);
+        gbtStages.add(gbtClassifier);
+        Pipeline gbtPipeline = new Pipeline();
+        gbtPipeline.setStages(gbtStages.toArray(new PipelineStage[gbtStages.size()]));
+        PipelineModel gbtModel = gbtPipeline.fit(learningData);
 
-
-        Dataset<Row> logisticResult = logisticRegressionModel.transform(testData);
-        logisticResult.printSchema();
-
-        RegressionEvaluator evaluator = new RegressionEvaluator()
-                .setLabelCol(targetColumn)
-                .setPredictionCol("prediction")
-                .setMetricName("rmse");
-
-        System.out.println("EXXXPLAIN: " + evaluator.explainParams());
-        double logisticRegressionRMSE = evaluator.evaluate(logisticResult);
-        System.out.println("Logistic regression Root Mean Squared Error (RMSE) on test data = " + logisticRegressionRMSE);
-
-
-        savePMML(pipelineExample.outputPmmlFile, initialData, logisticRegressionModel);
+        savePMML(pipelineExample.outputPmmlFile, initialData, gbtModel);
     }
 
-    private static void savePMML(String outputPmmlFile, Dataset<Row> initialData, PipelineModel logisticRegressionModel) throws IOException, JAXBException {
-        PMML pmml = ConverterUtil.toPMML(initialData.schema(), logisticRegressionModel);
+    private static void savePMML(String outputPmmlFile, Dataset<Row> initialData, PipelineModel model) throws IOException, JAXBException {
+        // Saving to local fs
+        try {
+            File f = new File("/tmp/lil_w.pmml");
+            if (!f.exists()) f.createNewFile();
+            PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
+            OutputStream os = new FileOutputStream(f);
+            MetroJAXBUtil.marshalPMML(pmml, os);
+            os.close();
+        }
+        catch (IOException ex) {
+        }
+
+        // Saving to HDFS
+        PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
         FileSystem hdfs = FileSystem.get(new Configuration());
         Path file = new Path(outputPmmlFile);
         if ( hdfs.exists( file )) { hdfs.delete( file, true ); }
