@@ -34,10 +34,12 @@ import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.StructField;
+import org.apache.spark.util.ByteBufferOutputStream;
 import org.dmg.pmml.PMML;
 import org.jpmml.model.MetroJAXBUtil;
 import org.jpmml.model.SerializationUtil;
 import org.jpmml.sparkml.ConverterUtil;
+import org.json.JSONObject;
 import scala.Tuple2;
 
 import static org.apache.spark.sql.functions.col;
@@ -233,35 +235,53 @@ public class DataPipeline {
         PipelineModel gbtModel = gbtPipeline.fit(learningData);
 
         ModelMetric modelMetric = new ModelMetric(gbtModel.transform(testData), "prediction", targetColumn);
-        System.out.println("model metrics");
-        System.out.println(modelMetric.precision());
-        System.out.println(modelMetric.recall());
-        System.out.println(modelMetric.f1Score());
-        System.out.println(modelMetric.accuracy());
-        savePMML(pipelineExample.outputPmmlFile, initialData, gbtModel);
+        savePMML(pipelineExample.outputPmmlFile, initialData, gbtModel, modelMetric);
     }
 
-    private static void savePMML(String outputPmmlFile, Dataset<Row> initialData, PipelineModel model) throws IOException, JAXBException {
-        // Saving to local fs
-        try {
-            File f = new File("/tmp/lil_w.pmml");
-            if (!f.exists()) f.createNewFile();
-            PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
-            OutputStream os = new FileOutputStream(f);
-            MetroJAXBUtil.marshalPMML(pmml, os);
-            os.close();
-        }
-        catch (IOException ex) {
-        }
+    private static void savePMML(final String outputPmmlFile, Dataset<Row> initialData, PipelineModel model, ModelMetric modelMetric) throws IOException, JAXBException {
+        final String oldVersion = "<PMML xmlns=\"http://www.dmg.org/PMML-4_2\" version=\"4.2\">";
+        final String newVersion = "<PMML xmlns=\"http://www.dmg.org/PMML-4_3\" version=\"4.3\">";
 
-        // Saving to HDFS
-        PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
+        // Saving to local fs
+//        try {
+//            // Dev Test Saving
+//            File f = new File("/tmp/lil_w.pmml");
+//            if (!f.exists()) f.createNewFile();
+//            PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
+//            //OutputStream os = new FileOutputStream(f);
+//            ByteArrayOutputStream os = new ByteArrayOutputStream();
+//            MetroJAXBUtil.marshalPMML(pmml, os);
+//            String pmmlString = new String(os.toByteArray(),"UTF-8");
+//            pmmlString = pmmlString.replace(newVersion,oldVersion);
+//            PrintWriter writer = new PrintWriter(f);
+//            writer.write(pmmlString);
+//            os.close();
+//        }
+//        catch (IOException ex) {
+//        }
+        // HDFS
+
+        final PMML pmml = ConverterUtil.toPMML(initialData.schema(), model);
+        final ByteArrayOutputStream bos = new ByteBufferOutputStream();
+        MetroJAXBUtil.marshalPMML(pmml, bos);
+        String pmmlString = new String(bos.toByteArray(), "UTF-8");
+        pmmlString = pmmlString.replace(newVersion, oldVersion);
+
         FileSystem hdfs = FileSystem.get(new Configuration());
         Path file = new Path(outputPmmlFile);
         if ( hdfs.exists( file )) { hdfs.delete( file, true ); }
         OutputStream os = hdfs.create(file);
-        MetroJAXBUtil.marshalPMML(pmml, os);
+        os.write(pmmlString.getBytes());
         os.close();
+
+        JSONObject jsonObject = new JSONObject(modelMetric);
+        final String modelParams = outputPmmlFile.replace(".pmml", "_params.json");
+        file = new Path(modelParams);
+        if ( hdfs.exists( file )) { hdfs.delete( file, true ); }
+        OutputStream modelParamsOs = hdfs.create(file);
+        modelParamsOs.write(jsonObject.toString().getBytes());
+        modelParamsOs.close();
+
     }
 
 

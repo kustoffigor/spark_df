@@ -25,6 +25,22 @@ public class ModelMetric implements Serializable {
         return String.format("accuracy = %s", accuracy);
     }
 
+    public double getPrecision() {
+        return precision;
+    }
+
+    public double getRecall() {
+        return recall;
+    }
+
+    public double getF1Score() {
+        return f1Score;
+    }
+
+    public double getAccuracy() {
+        return accuracy;
+    }
+
     private final double precision;
     private final double recall;
     private final double f1Score;
