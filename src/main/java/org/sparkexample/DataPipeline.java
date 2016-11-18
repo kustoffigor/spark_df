@@ -3,14 +3,18 @@ package org.sparkexample;
 import java.io.*;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import com.antifraud.*;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParameterException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.FilterFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
@@ -169,9 +173,23 @@ public class DataPipeline {
 //                    DateTransformer dateTransformer = new DateTransformer(field.getName());
 //                    pipelineStages.add(dateTransformer);
 //                    columns.addAll(dateTransformer.outputColumns());
-//                    YearExtractor yearExtractor = new YearExtractor().setInputCol(field.getName()).setOutputCol("year");
-//                    columns.add(yearExtractor.getOutputCol());
-//                    pipelineStages.add(yearExtractor);
+                    YearExtractor yearExtractor = new YearExtractor().setInputCol(field.getName()).setOutputCol("year");
+                    MonthExtractor monthExtractor = new MonthExtractor().setInputCol(field.getName()).setOutputCol("month");
+                    DayExtractor dayExtractor = new DayExtractor().setInputCol(field.getName()).setOutputCol("day");
+                    HourExtractor hourExtractor = new HourExtractor().setInputCol(field.getName()).setOutputCol("hour");
+                    MinuteExtractor minuteExtractor = new MinuteExtractor().setInputCol(field.getName()).setOutputCol("minute");
+
+                    columns.add(yearExtractor.getOutputCol());
+                    columns.add(monthExtractor.getOutputCol());
+                    columns.add(dayExtractor.getOutputCol());
+                    columns.add(hourExtractor.getOutputCol());
+                    columns.add(minuteExtractor.getOutputCol());
+
+                    pipelineStages.add(yearExtractor);
+                    pipelineStages.add(monthExtractor);
+                    pipelineStages.add(dayExtractor);
+                    pipelineStages.add(hourExtractor);
+                    pipelineStages.add(minuteExtractor);
                     break;
                 case DOUBLE:
                     final String bucketizerOutput = field.getName() + "_bucket";
@@ -214,6 +232,12 @@ public class DataPipeline {
         gbtPipeline.setStages(gbtStages.toArray(new PipelineStage[gbtStages.size()]));
         PipelineModel gbtModel = gbtPipeline.fit(learningData);
 
+        ModelMetric modelMetric = new ModelMetric(gbtModel.transform(testData), "prediction", targetColumn);
+        System.out.println("model metrics");
+        System.out.println(modelMetric.precision());
+        System.out.println(modelMetric.recall());
+        System.out.println(modelMetric.f1Score());
+        System.out.println(modelMetric.accuracy());
         savePMML(pipelineExample.outputPmmlFile, initialData, gbtModel);
     }
 
